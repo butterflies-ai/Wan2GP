@@ -18,3 +18,5 @@ einops
 moviepy==1.0.3
 mmgp==3.2.6
 peft==0.14.0
+# NATS client for Python
+nats-py>=2.9.0
