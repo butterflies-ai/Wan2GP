@@ -20,3 +20,6 @@ mmgp==3.2.6
 peft==0.14.0
 # NATS client for Python
 nats-py>=2.9.0
+# Additional dependencies for video generation
+Pillow>=10.0.0
+huggingface_hub>=0.20.0
