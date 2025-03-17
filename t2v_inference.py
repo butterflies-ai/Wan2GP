@@ -6,7 +6,7 @@ import torch
 import traceback
 import gc
 import random
-
+import pprint
 # These imports rely on your existing code structure
 # They must match the location of your WAN code, etc.
 import wan
@@ -613,6 +613,8 @@ def main():
         VAE_tile_size = 128  
 
     print('Using VAE tile size of', VAE_tile_size)
+    
+    pprint.pprint(wan_model);
 
     # Actually run the i2v generation
     try:
