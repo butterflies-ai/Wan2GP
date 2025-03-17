@@ -384,7 +384,7 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                         logging.info(f"Processing request {task_id} synchronously")
                         
                         # Process the request
-                        result = await process_request(request_data)
+                        result = await process_request(request_data.get("request"))
                         
                         # Add request_id to result
                         # result["taskId"] = task_id
