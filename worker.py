@@ -9,34 +9,27 @@ import uuid
 import base64
 from pathlib import Path
 
-# Try to import dotenv for environment variable loading
-try:
-    from dotenv import load_dotenv
-    # Check if .env file exists and load it
-    env_path = Path('.') / '.env'
-    if env_path.exists():
-        load_dotenv(dotenv_path=env_path)
-        # We'll use print here since logging is not set up yet
-        print(f"Loaded environment variables from {env_path.absolute()}")
-    else:
-        print("No .env file found in current directory")
-except ImportError:
-    print("python-dotenv package not installed. Environment variables will not be loaded from .env file.")
-    print("Install with: pip install python-dotenv")
-
+from t2v_utils import text_to_video
+from i2v_utils import image_to_video
 from nats.aio.client import Client as NATS
 from nats.aio.errors import ErrConnectionClosed, ErrTimeout, ErrNoServers
 
-# Try to import video generation functions
-try:
-    from t2v_utils import text_to_video
-    from i2v_utils import image_to_video
-except ImportError as e:
-    print(f"Warning: Could not import video generation modules: {e}")
-    print("Make sure the video generation modules are installed and in your Python path")
 
-# Create output directory for generated videos
-os.makedirs("./output", exist_ok=True)
+def maybe_load_env():
+    # Try to import dotenv for environment variable loading
+    try:
+        from dotenv import load_dotenv
+        # Check if .env file exists and load it
+        env_path = Path('.') / '.env'
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path)
+            # We'll use print here since logging is not set up yet
+            print(f"Loaded environment variables from {env_path.absolute()}")
+        else:
+            print("No .env file found in current directory")
+    except ImportError:
+        print("python-dotenv package not installed. Environment variables will not be loaded from .env file.")
+        print("Install with: pip install python-dotenv")
 
 # Set up logging
 def setup_logging(log_level, log_file=None):
@@ -465,12 +458,12 @@ def parse_arguments():
                         help='NATS server address (default: nats://localhost:4222)')
     parser.add_argument('--request-subject', 
                         type=str, 
-                        default='video.request',
-                        help='NATS subject to poll for requests (default: video.request)')
+                        default='wan.video.request',
+                        help='NATS subject to poll for requests (default: wan.video.request)')
     parser.add_argument('--result-subject', 
                         type=str, 
-                        default='video.result',
-                        help='NATS subject to post results to (default: video.result)')
+                        default='wan.video.result',
+                        help='NATS subject to post results to (default: wan.video.result)')
     parser.add_argument('--log-level',
                         type=str,
                         default='INFO',
@@ -489,13 +482,8 @@ def main():
     
     logging.info(f"Starting Video Generation Worker")
     
-    # Log .env file status now that logging is set up
-    env_path = Path('.') / '.env'
-    if env_path.exists():
-        logging.info(f"Loaded environment variables from {env_path.absolute()}")
-    else:
-        logging.warning("No .env file found in current directory")
-    
+    maybe_load_env()
+        
     logging.info(f"Connecting to NATS server: {args.nats_server}")
     logging.info(f"Polling request subject: {args.request_subject}")
     logging.info(f"Posting results to subject: {args.result_subject}")
