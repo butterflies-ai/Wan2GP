@@ -320,63 +320,87 @@ async def post_result(nc, result_subject, request_id, result_data):
         logging.exception(f"Error posting result: {e}")
         return False
 
-async def run(nats_server, request_subject, result_subject):
+async def run(nats_server, request_subject, result_subject, polling_interval):
     # Connect to NATS
     nc = await connect_to_nats(nats_server)
     if not nc:
         return
     
+    logging.info(f"Using polling interval of {polling_interval} seconds")
+    
     try:
-        # Processing flag to avoid overlapping processing
-        is_processing = False
-        
-        # Loop to poll for requests every second
+        # Loop to poll for requests
         while True:
-            if not is_processing:
+            try:
+                logging.debug(f"Polling '{request_subject}' for new requests")
+                
+                # Send request with timeout
+                poll_payload = json.dumps({"action": "poll"}).encode()
+                response = await nc.request(
+                    request_subject, 
+                    poll_payload, 
+                    timeout=2.0
+                )
+                
+                # Process response
+                response_data = response.data.decode()
                 try:
-                    logging.debug(f"Polling '{request_subject}' for new requests")
+                    request_data = json.loads(response_data)
                     
-                    # Send request with timeout
-                    poll_payload = json.dumps({"action": "poll"}).encode()
-                    response = await nc.request(
-                        request_subject, 
-                        poll_payload, 
-                        timeout=2.0
-                    )
-                    
-                    # Process response
-                    response_data = response.data.decode()
-                    try:
-                        request_data = json.loads(response_data)
+                    # Check if there's a request to process
+                    if request_data.get("status") == "no_request":
+                        logging.debug("No pending requests")
+                        # Only sleep if there are no requests to process
+                        await asyncio.sleep(polling_interval)
+                    else:
+                        # Extract request ID
+                        request_id = request_data.get("request_id", "unknown")
+                        logging.info(f"Received request {request_id} from polling '{request_subject}'")
+                        logging.debug(f"Request data: {request_data}")
                         
-                        # Check if there's a request to process
-                        if request_data.get("status") == "no_request":
-                            logging.debug("No pending requests")
+                        # Process request synchronously
+                        logging.info(f"Processing request {request_id} synchronously")
+                        
+                        # Process the request
+                        result = await process_request(request_data)
+                        
+                        # Add request_id to result
+                        result["request_id"] = request_id
+                        
+                        # Post the result
+                        success = await post_result(nc, result_subject, request_id, result)
+                        if success:
+                            logging.info(f"Successfully posted result for request {request_id}")
                         else:
-                            # Extract request ID
-                            request_id = request_data.get("request_id", "unknown")
-                            logging.info(f"Received request {request_id} from polling '{request_subject}'")
-                            logging.debug(f"Request data: {request_data}")
-                            
-                            # Set processing flag
-                            is_processing = True
-                            
-                            # Process request asynchronously
-                            asyncio.create_task(
-                                process_and_post_result(nc, result_subject, request_id, request_data, 
-                                                       lambda: setattr(is_processing, "_", False))
-                            )
-                            
-                    except json.JSONDecodeError:
-                        logging.warning(f"Received non-JSON response from polling: {response_data}")
-                    
-                except ErrTimeout:
-                    logging.debug("Polling request timed out, will retry")
-                except Exception as e:
-                    logging.exception(f"Error polling for requests: {e}")
-            
-            # Wait for 1 second before polling again
-            await asyncio.sleep(1)
+                            logging.error(f"Failed to post result for request {request_id}")
+                        
+                        # Continue immediately to poll for the next request
+                        # No sleep here
+                        
+                except json.JSONDecodeError:
+                    logging.warning(f"Received non-JSON response from polling: {response_data}")
+                    await asyncio.sleep(polling_interval)
+                
+            except ErrTimeout:
+                logging.debug("Polling request timed out, will retry")
+                await asyncio.sleep(polling_interval)
+            except Exception as e:
+                logging.exception(f"Error processing request: {e}")
+                
+                # If we were processing a request when the error occurred, try to send an error response
+                if 'request_id' in locals():
+                    try:
+                        error_result = {
+                            "status": "error",
+                            "message": f"Internal server error: {str(e)}",
+                            "request_id": request_id
+                        }
+                        await post_result(nc, result_subject, request_id, error_result)
+                    except Exception as e2:
+                        logging.error(f"Failed to post error result: {e2}")
+                
+                # Sleep after an error to avoid tight error loops
+                await asyncio.sleep(polling_interval)
             
     except Exception as e:
         logging.exception(f"Error in run loop: {e}")
@@ -385,52 +409,7 @@ async def run(nats_server, request_subject, result_subject):
         await nc.close()
         logging.info("Connection to NATS closed")
 
-async def process_and_post_result(nc, result_subject, request_id, request_data, done_callback):
-    """
-    Process a request and post the result.
-    
-    Args:
-        nc: NATS client
-        result_subject (str): Subject to post results to
-        request_id (str): ID of the request
-        request_data (dict): Request data to process
-        done_callback (callable): Callback to call when done
-    """
-    try:
-        # Process the request
-        logging.info(f"Processing request {request_id}")
-        result = await process_request(request_data)
-        
-        # Add request_id to result
-        result["request_id"] = request_id
-        
-        # Post the result
-        success = await post_result(nc, result_subject, request_id, result)
-        if success:
-            logging.info(f"Successfully posted result for request {request_id}")
-        else:
-            logging.error(f"Failed to post result for request {request_id}")
-        
-    except Exception as e:
-        logging.exception(f"Error processing request {request_id}: {e}")
-        
-        # Try to post error result
-        error_result = {
-            "status": "error",
-            "message": f"Internal server error: {str(e)}",
-            "request_id": request_id
-        }
-        try:
-            await post_result(nc, result_subject, request_id, error_result)
-        except Exception as e2:
-            logging.error(f"Failed to post error result: {e2}")
-    
-    finally:
-        # Reset processing flag
-        if done_callback:
-            done_callback()
-
-async def main_async(nats_server, request_subject, result_subject):
+async def main_async(nats_server, request_subject, result_subject, polling_interval):
     # Handle graceful shutdown
     loop = asyncio.get_running_loop()
     
@@ -438,7 +417,7 @@ async def main_async(nats_server, request_subject, result_subject):
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown(loop)))
     
-    await run(nats_server, request_subject, result_subject)
+    await run(nats_server, request_subject, result_subject, polling_interval)
 
 async def shutdown(loop):
     logging.info("Shutting down...")
@@ -464,6 +443,10 @@ def parse_arguments():
                         type=str, 
                         default='wan.video.result',
                         help='NATS subject to post results to (default: wan.video.result)')
+    parser.add_argument('--polling-interval',
+                        type=float,
+                        default=1.0,
+                        help='Interval in seconds between polling requests when idle (default: 1.0)')
     parser.add_argument('--log-level',
                         type=str,
                         default='INFO',
@@ -472,7 +455,15 @@ def parse_arguments():
     parser.add_argument('--log-file',
                         type=str,
                         help='Log file path (default: None, logs to console only)')
-    return parser.parse_args()
+    
+    args = parser.parse_args()
+    
+    # Validate polling interval
+    if args.polling_interval < 0.1:
+        print(f"Warning: Polling interval {args.polling_interval}s is too small, using 0.1s")
+        args.polling_interval = 0.1
+    
+    return args
 
 def main():
     args = parse_arguments()
@@ -490,11 +481,12 @@ def main():
     logging.info(f"Connecting to NATS server: {args.nats_server}")
     logging.info(f"Polling request subject: {args.request_subject}")
     logging.info(f"Posting results to subject: {args.result_subject}")
+    logging.info(f"Polling interval: {args.polling_interval} seconds")
     logging.info(f"Log level: {args.log_level}")
     if args.log_file:
         logging.info(f"Logging to file: {args.log_file}")
     
-    asyncio.run(main_async(args.nats_server, args.request_subject, args.result_subject))
+    asyncio.run(main_async(args.nats_server, args.request_subject, args.result_subject, args.polling_interval))
 
 if __name__ == "__main__":
     main()
