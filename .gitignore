@@ -21,6 +21,7 @@
 *.html
 *.pdf
 *.whl
+.env
 cache
 __pycache__/
 storage/
