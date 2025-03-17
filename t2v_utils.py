@@ -189,13 +189,14 @@ def text_to_video(
         
         # Set default model files if not provided
         if transformer_file is None:
-            if is_720p:
-                transformer_file = f"{DATA_DIR}/t2v-14B-720p.safetensors"
-            else:
-                transformer_file = f"{DATA_DIR}/t2v-14B-480p.safetensors"
+            transformer_file = f"{DATA_DIR}/wan2.1_text2video_14B_bf16.safetensors"
+            # if is_720p:
+            #     transformer_file = f"{DATA_DIR}/wan2.1_text2video_14B_bf16.safetensors"
+            # else:
+            #     transformer_file = f"{DATA_DIR}/t2v-14B-480p.safetensors"
         
         if text_encoder_file is None:
-            text_encoder_file = f"{DATA_DIR}/t5-v1_1-xxl.safetensors"
+            text_encoder_file = f"{DATA_DIR}/models_t5_umt5-xxl-enc-quanto_int8.safetensors"
         
         # Setup environment
         offload.default_verboseLevel = 1
