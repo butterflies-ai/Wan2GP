@@ -272,18 +272,21 @@ async def process_request(request_data):
     Returns:
         dict: Response data with status and result
     """
-    request_type = request_data.get("type", "")
+    if (request_data.get("imageUrl", "") != ""):
+        request_type = "image_to_video"
+    elif (request_data.get("prompt", "") != ""):
+        request_type = "text_to_video"
+    else:
+        logging.error(f"Unknown request type: {request_data}")
+        return {
+            "status": "error",
+            "message": "Unknown request type"
+        }
     
     if request_type == "text_to_video":
         return await process_text_to_video_request(request_data)
-    elif request_type == "image_to_video":
-        return await process_image_to_video_request(request_data)
     else:
-        logging.error(f"Unknown request type: {request_type}")
-        return {
-            "status": "error",
-            "message": f"Unknown request type: {request_type}"
-        }
+        return await process_image_to_video_request(request_data)
 
 async def post_result(nc, result_subject, request_id, result_data, worker_id):
     """
@@ -381,13 +384,13 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                         logging.info(f"Processing request {task_id} synchronously")
                         
                         # Process the request
-                        # result = await process_request(request_data)
+                        result = await process_request(request_data)
                         
                         # Add request_id to result
                         # result["taskId"] = task_id
                         
                         # Post the result
-                        success = await post_result(nc, result_subject, task_id, {'status': 'success', 'taskId': task_id}, worker_id)
+                        success = await post_result(nc, result_subject, task_id, {'status': 'success', 'taskId': task_id, 'result': result}, worker_id)
                         if success:
                             logging.info(f"Successfully posted result for request {task_id}")
                         else:
