@@ -7,6 +7,7 @@ import time
 import logging
 import uuid
 import base64
+import socket
 from pathlib import Path
 
 from t2v_utils import text_to_video
@@ -75,6 +76,17 @@ def setup_logging(log_level, log_file=None):
         logger.addHandler(file_handler)
     
     return logger
+
+def generate_default_worker_id():
+    """
+    Generate a default worker ID based on hostname and a UUID.
+    
+    Returns:
+        str: A worker ID in the format 'hostname-uuid'
+    """
+    hostname = socket.gethostname()
+    unique_id = str(uuid.uuid4())[:8]  # Use first 8 chars of UUID for brevity
+    return f"{hostname}-{unique_id}"
 
 async def connect_to_nats(nats_server):
     # Create a NATS client
@@ -273,7 +285,7 @@ async def process_request(request_data):
             "message": f"Unknown request type: {request_type}"
         }
 
-async def post_result(nc, result_subject, request_id, result_data):
+async def post_result(nc, result_subject, request_id, result_data, worker_id):
     """
     Post the result to the result subject using request/response pattern.
     
@@ -282,13 +294,15 @@ async def post_result(nc, result_subject, request_id, result_data):
         result_subject (str): Subject to post results to
         request_id (str): ID of the original request
         result_data (dict): Result data to post
+        worker_id (str): ID of this worker
     
     Returns:
         bool: True if successful, False otherwise
     """
     try:
-        # Add request_id to result data
+        # Add request_id and worker_id to result data
         result_data["request_id"] = request_id
+        result_data["worker_id"] = worker_id
         
         # Convert data to JSON and then to bytes
         result_payload = json.dumps(result_data).encode()
@@ -320,13 +334,14 @@ async def post_result(nc, result_subject, request_id, result_data):
         logging.exception(f"Error posting result: {e}")
         return False
 
-async def run(nats_server, request_subject, result_subject, polling_interval):
+async def run(nats_server, request_subject, result_subject, polling_interval, worker_id):
     # Connect to NATS
     nc = await connect_to_nats(nats_server)
     if not nc:
         return
     
     logging.info(f"Using polling interval of {polling_interval} seconds")
+    logging.info(f"Worker ID: {worker_id}")
     
     try:
         # Loop to poll for requests
@@ -334,8 +349,12 @@ async def run(nats_server, request_subject, result_subject, polling_interval):
             try:
                 logging.debug(f"Polling '{request_subject}' for new requests")
                 
-                # Send request with timeout
-                poll_payload = json.dumps({"action": "poll"}).encode()
+                # Send request with timeout, including worker_id
+                poll_payload = json.dumps({
+                    "action": "poll",
+                    "worker_id": worker_id
+                }).encode()
+                
                 response = await nc.request(
                     request_subject, 
                     poll_payload, 
@@ -368,7 +387,7 @@ async def run(nats_server, request_subject, result_subject, polling_interval):
                         result["request_id"] = request_id
                         
                         # Post the result
-                        success = await post_result(nc, result_subject, request_id, result)
+                        success = await post_result(nc, result_subject, request_id, result, worker_id)
                         if success:
                             logging.info(f"Successfully posted result for request {request_id}")
                         else:
@@ -395,7 +414,7 @@ async def run(nats_server, request_subject, result_subject, polling_interval):
                             "message": f"Internal server error: {str(e)}",
                             "request_id": request_id
                         }
-                        await post_result(nc, result_subject, request_id, error_result)
+                        await post_result(nc, result_subject, request_id, error_result, worker_id)
                     except Exception as e2:
                         logging.error(f"Failed to post error result: {e2}")
                 
@@ -409,7 +428,7 @@ async def run(nats_server, request_subject, result_subject, polling_interval):
         await nc.close()
         logging.info("Connection to NATS closed")
 
-async def main_async(nats_server, request_subject, result_subject, polling_interval):
+async def main_async(nats_server, request_subject, result_subject, polling_interval, worker_id):
     # Handle graceful shutdown
     loop = asyncio.get_running_loop()
     
@@ -417,7 +436,7 @@ async def main_async(nats_server, request_subject, result_subject, polling_inter
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown(loop)))
     
-    await run(nats_server, request_subject, result_subject, polling_interval)
+    await run(nats_server, request_subject, result_subject, polling_interval, worker_id)
 
 async def shutdown(loop):
     logging.info("Shutting down...")
@@ -447,6 +466,9 @@ def parse_arguments():
                         type=float,
                         default=1.0,
                         help='Interval in seconds between polling requests when idle (default: 1.0)')
+    parser.add_argument('--worker-id',
+                        type=str,
+                        help='Unique ID for this worker (default: auto-generated)')
     parser.add_argument('--log-level',
                         type=str,
                         default='INFO',
@@ -463,6 +485,10 @@ def parse_arguments():
         print(f"Warning: Polling interval {args.polling_interval}s is too small, using 0.1s")
         args.polling_interval = 0.1
     
+    # Generate worker ID if not provided
+    if not args.worker_id:
+        args.worker_id = generate_default_worker_id()
+    
     return args
 
 def main():
@@ -472,6 +498,7 @@ def main():
     logger = setup_logging(args.log_level, args.log_file)
     
     logging.info(f"Starting Video Generation Worker")
+    logging.info(f"Worker ID: {args.worker_id}")
     
     maybe_load_env()
     
@@ -486,7 +513,7 @@ def main():
     if args.log_file:
         logging.info(f"Logging to file: {args.log_file}")
     
-    asyncio.run(main_async(args.nats_server, args.request_subject, args.result_subject, args.polling_interval))
+    asyncio.run(main_async(args.nats_server, args.request_subject, args.result_subject, args.polling_interval, args.worker_id))
 
 if __name__ == "__main__":
     main()
