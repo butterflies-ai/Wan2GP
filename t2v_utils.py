@@ -4,7 +4,7 @@ import torch
 import random
 import gc
 from pathlib import Path
-
+import pprint
 # Import WAN modules
 try:
     import wan
@@ -254,6 +254,8 @@ def text_to_video(
                 vae_tile_size = 128
         
         print(f"Using VAE tile size of {vae_tile_size}")
+        
+        pprint.pprint(wan_model);
         
         # Generate the video
         print(f"Starting text-to-video generation for prompt: {prompt}")
