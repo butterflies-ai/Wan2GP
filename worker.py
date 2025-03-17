@@ -373,25 +373,25 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                         await asyncio.sleep(polling_interval)
                     else:
                         # Extract request ID
-                        request_id = request_data.get("request_id", "unknown")
-                        logging.info(f"Received request {request_id} from polling '{request_subject}'")
+                        task_id = request_data.get("taskId", "unknown")
+                        logging.info(f"Received request {task_id} from polling '{request_subject}'")
                         logging.debug(f"Request data: {request_data}")
                         
                         # Process request synchronously
-                        logging.info(f"Processing request {request_id} synchronously")
+                        logging.info(f"Processing request {task_id} synchronously")
                         
                         # Process the request
-                        result = await process_request(request_data)
+                        # result = await process_request(request_data)
                         
                         # Add request_id to result
-                        result["request_id"] = request_id
+                        # result["taskId"] = task_id
                         
                         # Post the result
-                        success = await post_result(nc, result_subject, request_id, result, worker_id)
+                        success = await post_result(nc, result_subject, task_id, {'status': 'success', 'taskId': task_id}, worker_id)
                         if success:
-                            logging.info(f"Successfully posted result for request {request_id}")
+                            logging.info(f"Successfully posted result for request {task_id}")
                         else:
-                            logging.error(f"Failed to post result for request {request_id}")
+                            logging.error(f"Failed to post result for request {task_id}")
                         
                         # Continue immediately to poll for the next request
                         # No sleep here
