@@ -23,3 +23,5 @@ nats-py>=2.9.0
 # Additional dependencies for video generation
 Pillow>=10.0.0
 huggingface_hub>=0.20.0
+# Environment variable management
+python-dotenv>=1.0.0
