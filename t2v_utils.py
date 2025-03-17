@@ -252,8 +252,9 @@ def text_to_video(
                 vae_tile_size = 256
             else:
                 vae_tile_size = 128
-        wan_model.enable_teacache = False
-        
+        trans = wan_model.model
+        trans.enable_teacache = False
+
         print(f"Using VAE tile size of {vae_tile_size}")
         
         pprint.pprint(wan_model);
