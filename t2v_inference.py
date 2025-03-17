@@ -99,6 +99,8 @@ def load_t2v_model(model_filename, text_encoder_filename, is_720p):
     """
     Load the i2v model with a specific size config and text encoder.
     """
+    print(f"Loading model from {model_filename} and {text_encoder_filename}")
+    
     if is_720p:
         print("Loading 14B-720p t2v model ...")
         cfg = WAN_CONFIGS['t2v-14B']
