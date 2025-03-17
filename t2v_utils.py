@@ -253,7 +253,7 @@ def text_to_video(
             else:
                 vae_tile_size = 128
         trans = wan_model.model
-        trans.enable_teacache = True
+        trans.enable_teacache = False
 
         print(f"Using VAE tile size of {vae_tile_size}")
         
@@ -272,6 +272,7 @@ def text_to_video(
             offload_model=False,
             enable_RIFLEx=enable_riflex,
             VAE_tile_size=vae_tile_size,
+            callback=lambda p, x: print(f"Callback: {p} {x}"),
         )
         
         # Clean up
