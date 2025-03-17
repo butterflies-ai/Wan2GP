@@ -69,6 +69,7 @@ def load_i2v_model(model_filename, text_encoder_filename, is_720p=False):
             t5_fsdp=False,
             dit_fsdp=False,
             use_usp=False,
+            callback=lambda p, x: print(f"Callback: {p} {x}"),
             model_filename=model_filename,
             text_encoder_filename=text_encoder_filename
         )
