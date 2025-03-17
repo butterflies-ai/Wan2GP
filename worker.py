@@ -483,6 +483,9 @@ def main():
     logging.info(f"Starting Video Generation Worker")
     
     maybe_load_env()
+    
+    # Create output directory for generated videos
+    os.makedirs("./output", exist_ok=True)
         
     logging.info(f"Connecting to NATS server: {args.nats_server}")
     logging.info(f"Polling request subject: {args.request_subject}")
