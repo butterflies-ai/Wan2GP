@@ -456,11 +456,11 @@ def parse_arguments():
                         help='NATS server address (default: nats://localhost:4222)')
     parser.add_argument('--request-subject', 
                         type=str, 
-                        default='wan.video.request',
+                        default='boba.video.request',
                         help='NATS subject to poll for requests (default: wan.video.request)')
     parser.add_argument('--result-subject', 
                         type=str, 
-                        default='wan.video.result',
+                        default='boba.video.result',
                         help='NATS subject to post results to (default: wan.video.result)')
     parser.add_argument('--polling-interval',
                         type=float,
