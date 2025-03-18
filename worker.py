@@ -419,47 +419,17 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
             logging.info(f"GCS path: {gcs_path}")
     
     current_task_id = "unknown"
-    
-    # Create an async queue for progress updates
-    progress_queue = asyncio.Queue()
-    
-    # Start a task to process progress updates
-    async def process_progress_updates():
-        while True:
-            try:
-                # Get the next progress update from the queue
-                progress_data = await progress_queue.get()
-                
-                # Publish the progress update
-                await nc.publish(result_subject, json.dumps({
-                    "status": "processing",
-                    "progress": progress_data["progress"],
-                    "taskId": progress_data["task_id"],
-                    "workerId": worker_id
-                }).encode())
-                await nc.flush()
-                
-                # Mark the task as done
-                progress_queue.task_done()
-            except Exception as e:
-                logging.warning(f"Error processing progress update: {e}")
-                # Continue processing updates even if one fails
-    
-    # Start the progress update processor
-    progress_task = asyncio.create_task(process_progress_updates())
-    
-    # Define a thread-safe callback that can be called from sync code
-    def progress_callback(p, _):
+        
+    async def progress_callback(p, _):
         logging.debug(f"Received progress update: {p}")
         try:
-            # Use run_coroutine_threadsafe to safely add to the queue from any thread
-            asyncio.run_coroutine_threadsafe(
-                progress_queue.put({
-                    "progress": p,
-                    "task_id": current_task_id
-                }), 
-                asyncio.get_event_loop()
-            )
+            await nc.publish(result_subject, json.dumps({
+                "status": "processing",
+                "progress": p,
+                "taskId": current_task_id,
+                "workerId": worker_id
+            }).encode())
+            await nc.flush()
         except Exception as e:
             logging.warning(f"Failed to queue progress update: {e}")
 
