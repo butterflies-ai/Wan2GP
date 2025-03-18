@@ -10,11 +10,11 @@ import base64
 import socket
 from pathlib import Path
 
+from google.cloud import storage
 from t2v_utils import text_to_video
 from i2v_utils import image_to_video
 from nats.aio.client import Client as NATS
 from nats.aio.errors import ErrConnectionClosed, ErrTimeout, ErrNoServers
-
 
 def maybe_load_env():
     # Try to import dotenv for environment variable loading
@@ -290,30 +290,79 @@ async def process_request(request_data, callback):
     else:
         return await process_image_to_video_request(request_data, callback)
 
-async def post_result(nc, result_subject, task_id, result_data, worker_id):
+def upload_to_gcs(local_file_path, gcs_bucket_name, gcs_path):
+    """
+    Upload a file to Google Cloud Storage.
+    
+    Args:
+        local_file_path (str): Path to the local file to upload
+        gcs_bucket_name (str): Name of the GCS bucket
+        gcs_path (str): Path within the bucket to upload to
+        
+    Returns:
+        str: Public URL of the uploaded file or None if upload failed
+    """
+    try:
+        # Create a storage client
+        storage_client = storage.Client()
+        
+        # Get the bucket
+        bucket = storage_client.bucket(gcs_bucket_name)
+        
+        # Generate a destination blob name
+        file_name = os.path.basename(local_file_path)
+        if gcs_path:
+            # Remove leading/trailing slashes from gcs_path
+            gcs_path = gcs_path.strip('/')
+            if gcs_path:
+                blob_name = f"{gcs_path}/{file_name}"
+            else:
+                blob_name = file_name
+        else:
+            blob_name = file_name
+            
+        # Create a blob
+        blob = bucket.blob(blob_name)
+        
+        # Upload the file
+        logging.info(f"Uploading {local_file_path} to gs://{gcs_bucket_name}/{blob_name}")
+        blob.upload_from_filename(local_file_path)
+        
+        # Make the blob publicly readable if possible
+        try:
+            blob.make_public()
+            public_url = blob.public_url
+            logging.info(f"File uploaded successfully. Public URL: {public_url}")
+            return public_url
+        except Exception as e:
+            logging.warning(f"Could not make blob public: {e}")
+            # Return a GCS URI instead
+            gcs_uri = f"gs://{gcs_bucket_name}/{blob_name}"
+            logging.info(f"File uploaded successfully. GCS URI: {gcs_uri}")
+            return gcs_uri
+            
+    except Exception as e:
+        logging.exception(f"Error uploading file to GCS: {e}")
+        return None
+
+async def post_result(nc, result_subject, data):
     """
     Post the result to the result subject using request/response pattern.
     
     Args:
         nc: NATS client
         result_subject (str): Subject to post results to
-        request_id (str): ID of the original request
-        result_data (dict): Result data to post
-        worker_id (str): ID of this worker
+        data (dict): Data to post
     
     Returns:
         bool: True if successful, False otherwise
     """
     try:
         # Add request_id and worker_id to result data
-        result_data["task_id"] = task_id
-        result_data["worker_id"] = worker_id
-        
         # Convert data to JSON and then to bytes
-        result_payload = json.dumps(result_data).encode()
+        result_payload = json.dumps(data).encode()
         
-        logging.info(f"Posting result for task {task_id} to '{result_subject}'")
-        logging.debug(f"Result data: {result_data}")
+        logging.debug(f"Result data: {data}")
         
         response = None
         for i in range(3):
@@ -355,7 +404,7 @@ async def post_result(nc, result_subject, task_id, result_data, worker_id):
         logging.exception(f"Error posting result: {e}")
         return False
 
-async def run(nats_server, request_subject, result_subject, polling_interval, worker_id):
+async def run(nats_server, request_subject, result_subject, polling_interval, worker_id, gcs_bucket=None, gcs_path=None):
     # Connect to NATS
     nc = await connect_to_nats(nats_server)
     if not nc:
@@ -364,21 +413,55 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
     logging.info(f"Using polling interval of {polling_interval} seconds")
     logging.info(f"Worker ID: {worker_id}")
     
-    current_task_id = None
+    if gcs_bucket:
+        logging.info(f"Will upload videos to GCS bucket: {gcs_bucket}")
+        if gcs_path:
+            logging.info(f"GCS path: {gcs_path}")
+    
+    current_task_id = "unknown"
+    
+    # Create an async queue for progress updates
+    progress_queue = asyncio.Queue()
+    
+    # Start a task to process progress updates
+    async def process_progress_updates():
+        while True:
+            try:
+                # Get the next progress update from the queue
+                progress_data = await progress_queue.get()
+                
+                # Publish the progress update
+                await nc.publish(result_subject, json.dumps({
+                    "status": "processing",
+                    "progress": progress_data["progress"],
+                    "taskId": progress_data["task_id"],
+                    "workerId": worker_id
+                }).encode())
+                await nc.flush()
+                
+                # Mark the task as done
+                progress_queue.task_done()
+            except Exception as e:
+                logging.warning(f"Error processing progress update: {e}")
+                # Continue processing updates even if one fails
+    
+    # Start the progress update processor
+    progress_task = asyncio.create_task(process_progress_updates())
     
     # Define a thread-safe callback that can be called from sync code
-    async def callback(p, _):
-        logging.debug(f"Sending progress update: {p}")
+    def progress_callback(p, _):
+        logging.debug(f"Received progress update: {p}")
         try:
-            await nc.publish(result_subject, json.dumps({
-                "status": "processing",
-                "progress": p,
-                "task_id": current_task_id,
-                "worker_id": worker_id
-            }).encode())
-            await nc.flush()
+            # Use run_coroutine_threadsafe to safely add to the queue from any thread
+            asyncio.run_coroutine_threadsafe(
+                progress_queue.put({
+                    "progress": p,
+                    "task_id": current_task_id
+                }), 
+                asyncio.get_event_loop()
+            )
         except Exception as e:
-            logging.warning(f"Failed to publish progress update: {e}")
+            logging.warning(f"Failed to queue progress update: {e}")
 
     try:
         # Loop to poll for requests
@@ -389,7 +472,7 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                 # Send request with timeout, including worker_id
                 poll_payload = json.dumps({
                     "action": "poll",
-                    "worker_id": worker_id
+                    "workerId": worker_id
                 }).encode()
                 
                 response = await nc.request(
@@ -419,10 +502,13 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                         logging.info(f"Processing request {task_id} synchronously")
                         
                         # Process the request
-                        result = await process_request(request_data.get("request"), callback)
+                        result = await process_request(request_data.get("request"), progress_callback)
+                        
+                        gcs_url = upload_to_gcs(result["result"]["output_file"], gcs_bucket, gcs_path)
                         
                         # Post the result
-                        success = await post_result(nc, result_subject, task_id, {'status': 'success', 'taskId': task_id, 'result': result}, worker_id)
+                        success = await post_result(nc, result_subject, 
+                                                    {'status': 'success', 'taskId': task_id, 'workerId': worker_id, 'videoUrl': gcs_url})
                         if success:
                             logging.info(f"Successfully posted result for request {task_id}")
                         else:
@@ -447,9 +533,10 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                         error_result = {
                             "status": "error",
                             "message": f"Internal server error: {str(e)}",
-                            "request_id": task_id
+                            "taskId": task_id,
+                            "workerId": worker_id
                         }
-                        await post_result(nc, result_subject, task_id, error_result, worker_id)
+                        await post_result(nc, result_subject, error_result)
                     except Exception as e2:
                         logging.error(f"Failed to post error result: {e2}")
                 
@@ -459,11 +546,15 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
     except Exception as e:
         logging.exception(f"Error in run loop: {e}")
     finally:
+        # Cancel the progress update task
+        if 'progress_task' in locals():
+            progress_task.cancel()
+            
         # Close the connection
         await nc.close()
         logging.info("Connection to NATS closed")
 
-async def main_async(nats_server, request_subject, result_subject, polling_interval, worker_id):
+async def main_async(nats_server, request_subject, result_subject, polling_interval, worker_id, gcs_bucket=None, gcs_path=None):
     # Handle graceful shutdown
     loop = asyncio.get_running_loop()
     
@@ -471,7 +562,7 @@ async def main_async(nats_server, request_subject, result_subject, polling_inter
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown(loop)))
     
-    await run(nats_server, request_subject, result_subject, polling_interval, worker_id)
+    await run(nats_server, request_subject, result_subject, polling_interval, worker_id, gcs_bucket, gcs_path)
 
 async def shutdown(loop):
     logging.info("Shutting down...")
@@ -512,6 +603,14 @@ def parse_arguments():
     parser.add_argument('--log-file',
                         type=str,
                         help='Log file path (default: None, logs to console only)')
+    # Add GCS arguments
+    parser.add_argument('--gcs-bucket',
+                        type=str,
+                        help='Google Cloud Storage bucket to upload videos to')
+    parser.add_argument('--gcs-path',
+                        type=str,
+                        default='',
+                        help='Path within the GCS bucket to upload videos to')
     
     args = parser.parse_args()
     
@@ -548,7 +647,14 @@ def main():
     if args.log_file:
         logging.info(f"Logging to file: {args.log_file}")
     
-    asyncio.run(main_async(args.nats_server, args.request_subject, args.result_subject, args.polling_interval, args.worker_id))
+    # Check for GCS bucket
+    if args.gcs_bucket:
+        logging.info(f"Will upload videos to GCS bucket: {args.gcs_bucket}")
+        if args.gcs_path:
+            logging.info(f"GCS path: {args.gcs_path}")
+            
+    asyncio.run(main_async(args.nats_server, args.request_subject, args.result_subject, 
+                          args.polling_interval, args.worker_id, args.gcs_bucket, args.gcs_path))
 
 if __name__ == "__main__":
     main()

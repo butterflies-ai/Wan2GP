@@ -25,3 +25,5 @@ Pillow>=10.0.0
 huggingface_hub>=0.20.0
 # Environment variable management
 python-dotenv>=1.0.0
+# Google Cloud Storage for uploading videos
+google-cloud-storage>=2.16.0
