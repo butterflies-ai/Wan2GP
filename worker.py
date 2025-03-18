@@ -364,13 +364,16 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
     logging.info(f"Using polling interval of {polling_interval} seconds")
     logging.info(f"Worker ID: {worker_id}")
     
-    async def callback(p, _):
-        logging.debug(f"Sending progress update: {p}")
-        await nc.publish(result_subject, json.dumps({
-            "status": "processing",
-            "progress": p,
-            "worker_id": worker_id
-        }).encode())
+    def callback(p, _):
+        async def async_callback():
+            logging.debug(f"Sending progress update: {p}")
+            await nc.publish(result_subject, json.dumps({
+                "status": "processing",
+                "progress": p,
+                "worker_id": worker_id
+            }).encode())
+            await nc.flush()
+        asyncio.run(async_callback())
 
     try:
         # Loop to poll for requests
