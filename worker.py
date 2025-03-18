@@ -355,24 +355,11 @@ async def post_result(nc, result_subject, task_id, result_data, worker_id):
         logging.exception(f"Error posting result: {e}")
         return False
 
-async def keep_alive(nc, request_subject, worker_id):
-    logging.info(f"Keeping alive on subject {request_subject}")
-    while True:
-        logging.debug(f"Sending keep alive on subject {request_subject}")
-        await nc.publish(request_subject, json.dumps({
-            "action": "keep_alive",
-            "worker_id": worker_id
-        }).encode())
-        await asyncio.sleep(10.0)
-        
 async def run(nats_server, request_subject, result_subject, polling_interval, worker_id):
     # Connect to NATS
     nc = await connect_to_nats(nats_server)
     if not nc:
         return
-    
-    # Start keep-alive task
-    asyncio.create_task(keep_alive(nc, "boba.video.worker.keep_alive", worker_id))
     
     logging.info(f"Using polling interval of {polling_interval} seconds")
     logging.info(f"Worker ID: {worker_id}")
