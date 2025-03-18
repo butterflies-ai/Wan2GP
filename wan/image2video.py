@@ -131,7 +131,7 @@ class WanI2V:
 
         self.sample_neg_prompt = config.sample_neg_prompt
 
-    def generate(self,
+    async def generate(self,
                 input_prompt,
                 img,
                 max_area=720 * 1280,
@@ -328,7 +328,7 @@ class WanI2V:
 
         # self.model.to(self.device)
         if callback != None:
-            callback(-1, None)
+            await callback(-1, None)
 
         for i, t in enumerate(tqdm(timesteps)):
             offload.set_step_no_for_lora(i)
@@ -373,7 +373,7 @@ class WanI2V:
             del timestep
 
             if callback is not None:
-                callback(i * 100 / sampling_steps, latent)         
+                await callback(i * 100 / sampling_steps, latent)         
 
 
         x0 = [latent.to(self.device)]

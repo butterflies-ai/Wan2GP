@@ -149,7 +149,7 @@ async def process_text_to_video_request(request_data, callback):
         logging.debug(f"T2V parameters: frames={num_frames}, steps={steps}, guidance={guidance_scale}, seed={seed}")
         
         # Call text_to_video function
-        result = text_to_video(
+        result = await text_to_video(
             prompt=prompt,
             output_file=str(output_file),
             negative_prompt=negative_prompt,
@@ -230,7 +230,7 @@ async def process_image_to_video_request(request_data, callback):
         logging.debug(f"I2V parameters: frames={num_frames}, steps={steps}, guidance={guidance_scale}, seed={seed}")
         
         # Call image_to_video function
-        result = image_to_video(
+        result = await image_to_video(
             image_path=str(temp_image_path),
             prompt=prompt,
             output_file=str(output_file),
@@ -364,41 +364,21 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
     logging.info(f"Using polling interval of {polling_interval} seconds")
     logging.info(f"Worker ID: {worker_id}")
     
-    # Track the current task ID for progress updates
-    current_task_id = "unknown"
-    
-    # Create an async queue to handle progress updates
-    progress_queue = asyncio.Queue()
-    
-    # Start a task to process progress updates from the queue
-    async def process_progress_updates():
-        while True:
-            try:
-                progress = await progress_queue.get()
-                logging.debug(f"Sending progress update: {progress}")
-                try:
-                    await nc.publish(result_subject, json.dumps({
-                        "status": "processing",
-                        "progress": progress,
-                        "task_id": current_task_id,
-                        "worker_id": worker_id
-                    }).encode())
-                    await nc.flush()
-                except Exception as e:
-                    logging.warning(f"Failed to publish progress update: {e}")
-                finally:
-                    progress_queue.task_done()
-            except Exception as e:
-                logging.error(f"Error processing progress update: {e}")
-                await asyncio.sleep(0.1)  # Prevent tight loop on errors
-    
-    # Start the progress update processor
-    progress_processor = asyncio.create_task(process_progress_updates())
+    current_task_id = None
     
     # Define a thread-safe callback that can be called from sync code
-    def callback(p, _):
-        # Use the current running loop to schedule the task
-        asyncio.run_coroutine_threadsafe(progress_queue.put(p), asyncio.get_running_loop())
+    async def callback(p, _):
+        logging.debug(f"Sending progress update: {p}")
+        try:
+            await nc.publish(result_subject, json.dumps({
+                "status": "processing",
+                "progress": p,
+                "task_id": current_task_id,
+                "worker_id": worker_id
+            }).encode())
+            await nc.flush()
+        except Exception as e:
+            logging.warning(f"Failed to publish progress update: {e}")
 
     try:
         # Loop to poll for requests
@@ -431,11 +411,9 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                     else:
                         # Extract request ID
                         task_id = request_data.get("taskId", "unknown")
+                        current_task_id = task_id
                         logging.info(f"Received request {task_id} from polling '{request_subject}'")
                         logging.debug(f"Request data: {request_data}")
-                        
-                        # Update the current task ID for progress updates
-                        current_task_id = task_id
                         
                         # Process request synchronously
                         logging.info(f"Processing request {task_id} synchronously")

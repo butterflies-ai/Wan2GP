@@ -118,7 +118,7 @@ class WanT2V:
 
         self.sample_neg_prompt = config.sample_neg_prompt
 
-    def generate(self,
+    async def generate(self,
                  input_prompt,
                  size=(1280, 720),
                  frame_num=81,
@@ -246,7 +246,7 @@ class WanT2V:
         if self.model.enable_teacache:
             self.model.compute_teacache_threshold(self.model.teacache_start_step, timesteps, self.model.teacache_multiplier)
         if callback != None:
-            callback(-1, None)
+            await callback(-1, None)
         for i, t in enumerate(tqdm(timesteps)):
             latent_model_input = latents
             timestep = [t]
@@ -284,7 +284,7 @@ class WanT2V:
             del temp_x0
 
             if callback is not None:
-                callback(i * 100 / sampling_steps, latents)         
+                await callback(i * 100 / sampling_steps, latents)         
 
         x0 = latents
         if offload_model:

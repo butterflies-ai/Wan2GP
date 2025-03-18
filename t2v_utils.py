@@ -130,7 +130,7 @@ def download_models_if_needed(transformer_filename, text_encoder_filename, local
 
     print("All required files are present.")
 
-def text_to_video(
+async def text_to_video(
     prompt,
     output_file=None,
     negative_prompt="",
@@ -262,7 +262,7 @@ def text_to_video(
         
         # Generate the video
         print(f"Starting text-to-video generation for prompt: {prompt}")
-        sample_frames = wan_model.generate(
+        sample_frames = await wan_model.generate(
             prompt,
             frame_num=frame_count,
             shift=flow_shift,
