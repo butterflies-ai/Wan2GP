@@ -472,9 +472,13 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                         logging.info(f"Processing request {task_id} synchronously")
                         
                         # Process the request
-                        result = await process_request(request_data.get("request"), progress_callback)
+                        #result = await process_request(request_data.get("request"), progress_callback)
                         
-                        gcs_url = upload_to_gcs(result["result"]["output_file"], gcs_bucket, gcs_path)
+                        result = {
+                            "output/t2v_9f13adcd-a4f0-4811-8bca-a7d243998cf6.mp4",
+                        }
+                        
+                        gcs_url = upload_to_gcs(result["output_file"], gcs_bucket, gcs_path)
                         
                         # Post the result
                         success = await post_result(nc, result_subject, 
