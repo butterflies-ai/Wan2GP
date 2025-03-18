@@ -13,7 +13,7 @@ from pathlib import Path
 from t2v_utils import text_to_video
 from i2v_utils import image_to_video
 from nats.aio.client import Client as NATS
-from nats.aio.errors import ErrConnectionClosed, ErrTimeout, ErrNoServers
+from nats.aio.errors import ErrConnectionClosed, ErrTimeout, ErrNoServers, TimeoutError
 
 
 def maybe_load_env():
@@ -158,7 +158,8 @@ async def process_text_to_video_request(request_data):
             height=height,
             steps=steps,
             guidance_scale=guidance_scale,
-            seed=seed
+            seed=seed,
+            callback=lambda p, _: print(f"Callback: {p}")
         )
         
         if result["status"] == "success":
@@ -313,6 +314,7 @@ async def post_result(nc, result_subject, task_id, result_data, worker_id):
         logging.info(f"Posting result for task {task_id} to '{result_subject}'")
         logging.debug(f"Result data: {result_data}")
         
+        response = None
         for i in range(3):
             try:
                 # Send request with timeout
@@ -321,11 +323,20 @@ async def post_result(nc, result_subject, task_id, result_data, worker_id):
                     result_payload, 
                     timeout=5.0
                 )
-                break
-            except ErrTimeout:
-                logging.warning(f"Timeout posting result for task {task_id}, attempt {i+1} of 3")
-                await asyncio.sleep(1.0)
+                break  # Break the loop if request is successful
+            except Exception as e:
+                logging.warning(f"Error posting result for task {task_id}, attempt {i+1} of 3: {str(e)}")
+                if i < 2:  # Only sleep if we're going to retry
+                    await asyncio.sleep(1.0)
+                else:
+                    # If all retries failed, re-raise the exception to be caught by the outer try/except
+                    raise
         
+        # If we didn't get a response after all retries, return False
+        if response is None:
+            logging.error(f"Failed to post result for task {task_id} after 3 attempts")
+            return False
+            
         # Process response
         response_data = response.data.decode()
         try:

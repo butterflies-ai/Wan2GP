@@ -149,7 +149,8 @@ def text_to_video(
     compile=False,
     transformer_file=None,
     text_encoder_file=None,
-    vae_tile_size=None
+    vae_tile_size=None,
+    callback=None
 ):
     """
     Generate a video from a text prompt using WAN text-to-video model.
@@ -174,7 +175,7 @@ def text_to_video(
         transformer_file (str, optional): Path to transformer model file. If None, uses default.
         text_encoder_file (str, optional): Path to text encoder file. If None, uses default.
         vae_tile_size (int, optional): VAE tile size. If None, automatically determined.
-        
+        callback (function, optional): Callback function to be called with progress information.
     Returns:
         dict: A dictionary containing the status of the generation and the path to the output file.
     """
@@ -272,7 +273,7 @@ def text_to_video(
             offload_model=False,
             enable_RIFLEx=enable_riflex,
             VAE_tile_size=vae_tile_size,
-            callback=lambda p, x: print(f"Callback: {p} {x}"),
+            callback=callback,
         )
         
         # Clean up
