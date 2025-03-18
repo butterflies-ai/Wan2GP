@@ -475,7 +475,7 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                         #result = await process_request(request_data.get("request"), progress_callback)
                         
                         result = {
-                            "output/t2v_9f13adcd-a4f0-4811-8bca-a7d243998cf6.mp4",
+                            "output_file": "output/t2v_9f13adcd-a4f0-4811-8bca-a7d243998cf6.mp4",
                         }
                         
                         gcs_url = upload_to_gcs(result["output_file"], gcs_bucket, gcs_path)
