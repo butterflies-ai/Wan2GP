@@ -288,7 +288,7 @@ async def process_request(request_data):
     else:
         return await process_image_to_video_request(request_data)
 
-async def post_result(nc, result_subject, request_id, result_data, worker_id):
+async def post_result(nc, result_subject, task_id, result_data, worker_id):
     """
     Post the result to the result subject using request/response pattern.
     
@@ -304,21 +304,27 @@ async def post_result(nc, result_subject, request_id, result_data, worker_id):
     """
     try:
         # Add request_id and worker_id to result data
-        result_data["request_id"] = request_id
+        result_data["task_id"] = task_id
         result_data["worker_id"] = worker_id
         
         # Convert data to JSON and then to bytes
         result_payload = json.dumps(result_data).encode()
         
-        logging.info(f"Posting result for request {request_id} to '{result_subject}'")
+        logging.info(f"Posting result for task {task_id} to '{result_subject}'")
         logging.debug(f"Result data: {result_data}")
         
-        # Send request with timeout
-        response = await nc.request(
-            result_subject, 
-            result_payload, 
-            timeout=5.0
-        )
+        for i in range(3):
+            try:
+                # Send request with timeout
+                response = await nc.request(
+                    result_subject, 
+                    result_payload, 
+                    timeout=5.0
+                )
+                break
+            except ErrTimeout:
+                logging.warning(f"Timeout posting result for task {task_id}, attempt {i+1} of 3")
+                await asyncio.sleep(1.0)
         
         # Process response
         response_data = response.data.decode()
@@ -331,17 +337,30 @@ async def post_result(nc, result_subject, request_id, result_data, worker_id):
             return True  # Still consider it successful
         
     except ErrTimeout:
-        logging.error(f"Timeout posting result for request {request_id}")
+        logging.error(f"Timeout posting result for task {task_id}")
         return False
     except Exception as e:
         logging.exception(f"Error posting result: {e}")
         return False
+
+async def keep_alive(nc, request_subject, worker_id):
+    logging.info(f"Keeping alive on subject {request_subject}")
+    while True:
+        logging.debug(f"Sending keep alive on subject {request_subject}")
+        await nc.publish(request_subject, json.dumps({
+            "action": "keep_alive",
+            "worker_id": worker_id
+        }).encode())
+        await asyncio.sleep(10.0)
 
 async def run(nats_server, request_subject, result_subject, polling_interval, worker_id):
     # Connect to NATS
     nc = await connect_to_nats(nats_server)
     if not nc:
         return
+    
+    # Start keep-alive task
+    asyncio.create_task(keep_alive(nc, "boba.video.worker.keep_alive", worker_id))
     
     logging.info(f"Using polling interval of {polling_interval} seconds")
     logging.info(f"Worker ID: {worker_id}")

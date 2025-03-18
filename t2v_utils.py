@@ -320,13 +320,3 @@ def text_to_video(
             "status": "error",
             "message": str(e)
         }
-
-# Example usage:
-# result = text_to_video(
-#     prompt="A beautiful sunset over the ocean with palm trees in the foreground",
-#     output_file="sunset.mp4",
-#     num_frames=65,
-#     steps=30,
-#     guidance_scale=5.0
-# )
-# print(result) 
