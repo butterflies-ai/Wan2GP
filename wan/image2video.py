@@ -373,7 +373,7 @@ class WanI2V:
             del timestep
 
             if callback is not None:
-                await callback(i * 100 / sampling_steps, latent)         
+                await callback(math.floor(i * 100 / sampling_steps), latent)         
 
 
         x0 = [latent.to(self.device)]

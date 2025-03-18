@@ -284,7 +284,7 @@ class WanT2V:
             del temp_x0
 
             if callback is not None:
-                await callback(i * 100 / sampling_steps, latents)         
+                await callback(math.floor(i * 100 / sampling_steps), latents)         
 
         x0 = latents
         if offload_model:
