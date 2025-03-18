@@ -119,7 +119,7 @@ async def connect_to_nats(nats_server):
         logging.error(f"Could not connect to NATS server: {e}")
         return None
 
-async def process_text_to_video_request(request_data):
+async def process_text_to_video_request(request_data, callback):
     """
     Process a text-to-video generation request.
     
@@ -159,7 +159,7 @@ async def process_text_to_video_request(request_data):
             steps=steps,
             guidance_scale=guidance_scale,
             seed=seed,
-            callback=lambda p, _: print(f"Callback: {p}")
+            callback=callback
         )
         
         if result["status"] == "success":
@@ -176,7 +176,7 @@ async def process_text_to_video_request(request_data):
             "message": str(e)
         }
 
-async def process_image_to_video_request(request_data):
+async def process_image_to_video_request(request_data, callback):
     """
     Process an image-to-video generation request.
     
@@ -240,7 +240,8 @@ async def process_image_to_video_request(request_data):
             height=height,
             steps=steps,
             guidance_scale=guidance_scale,
-            seed=seed
+            seed=seed,
+            callback=callback
         )
         
         # Clean up temporary image file
@@ -263,7 +264,7 @@ async def process_image_to_video_request(request_data):
             "message": str(e)
         }
 
-async def process_request(request_data):
+async def process_request(request_data, callback):
     """
     Process a request based on its type.
     
@@ -285,9 +286,9 @@ async def process_request(request_data):
         }
     
     if request_type == "text_to_video":
-        return await process_text_to_video_request(request_data)
+        return await process_text_to_video_request(request_data, callback)
     else:
-        return await process_image_to_video_request(request_data)
+        return await process_image_to_video_request(request_data, callback)
 
 async def post_result(nc, result_subject, task_id, result_data, worker_id):
     """
@@ -363,7 +364,7 @@ async def keep_alive(nc, request_subject, worker_id):
             "worker_id": worker_id
         }).encode())
         await asyncio.sleep(10.0)
-
+        
 async def run(nats_server, request_subject, result_subject, polling_interval, worker_id):
     # Connect to NATS
     nc = await connect_to_nats(nats_server)
@@ -376,6 +377,14 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
     logging.info(f"Using polling interval of {polling_interval} seconds")
     logging.info(f"Worker ID: {worker_id}")
     
+    async def callback(p, _):
+        logging.debug(f"Sending progress update: {p}")
+        await nc.publish(result_subject, json.dumps({
+            "status": "processing",
+            "progress": p,
+            "worker_id": worker_id
+        }).encode())
+
     try:
         # Loop to poll for requests
         while True:
@@ -414,10 +423,7 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                         logging.info(f"Processing request {task_id} synchronously")
                         
                         # Process the request
-                        result = await process_request(request_data.get("request"))
-                        
-                        # Add request_id to result
-                        # result["taskId"] = task_id
+                        result = await process_request(request_data.get("request"), callback)
                         
                         # Post the result
                         success = await post_result(nc, result_subject, task_id, {'status': 'success', 'taskId': task_id, 'result': result}, worker_id)
@@ -440,14 +446,14 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                 logging.exception(f"Error processing request: {e}")
                 
                 # If we were processing a request when the error occurred, try to send an error response
-                if 'request_id' in locals():
+                if 'task_id' in locals():
                     try:
                         error_result = {
                             "status": "error",
                             "message": f"Internal server error: {str(e)}",
-                            "request_id": request_id
+                            "request_id": task_id
                         }
-                        await post_result(nc, result_subject, request_id, error_result, worker_id)
+                        await post_result(nc, result_subject, task_id, error_result, worker_id)
                     except Exception as e2:
                         logging.error(f"Failed to post error result: {e2}")
                 
