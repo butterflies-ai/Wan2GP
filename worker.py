@@ -8,6 +8,7 @@ import logging
 import uuid
 import base64
 import socket
+import requests
 from pathlib import Path
 
 from google.cloud import storage
@@ -132,13 +133,13 @@ async def process_text_to_video_request(request_data, callback):
     try:
         # Extract parameters from request
         prompt = request_data.get("prompt", "")
-        negative_prompt = request_data.get("negative_prompt", "")
-        num_frames = int(request_data.get("num_frames", 65))
+        negative_prompt = request_data.get("negativePrompt", "")
+        num_frames = int(request_data.get("frameNum", 65))
         seed = int(request_data.get("seed", -1))
         guidance_scale = float(request_data.get("guidance_scale", 5.0))
         steps = int(request_data.get("steps", 30))
-        width = int(request_data.get("width", 832))
-        height = int(request_data.get("height", 480))
+        width = int(request_data.get("maxAreaWidth", 832))
+        height = int(request_data.get("maxAreaHeight", 480))
         
         # Generate unique output filename
         output_dir = Path("./output")
@@ -189,31 +190,32 @@ async def process_image_to_video_request(request_data, callback):
     try:
         # Extract parameters from request
         prompt = request_data.get("prompt", "")
-        negative_prompt = request_data.get("negative_prompt", "")
-        num_frames = int(request_data.get("num_frames", 65))
+        negative_prompt = request_data.get("negativePrompt", "")
+        num_frames = int(request_data.get("frameNum", 65))
         seed = int(request_data.get("seed", -1))
         guidance_scale = float(request_data.get("guidance_scale", 5.0))
         steps = int(request_data.get("steps", 30))
-        width = int(request_data.get("width", 832))
-        height = int(request_data.get("height", 480))
+        width = int(request_data.get("maxAreaWidth", 832))
+        height = int(request_data.get("maxAreaHeight", 480))
         
-        # Get base64 image data
-        image_data = request_data.get("image_data", "")
-        if not image_data:
-            logging.error("No image data provided in request")
+        image_url = request_data.get("imageUrl", "")
+        if not image_url:
+            logging.error("No image URL provided in request")
             return {
                 "status": "error",
-                "message": "No image data provided"
+                "message": "No image URL provided"
             }
         
-        # Decode base64 image data
+        # Download image from URL
         try:
-            image_bytes = base64.b64decode(image_data)
+            response = requests.get(image_url)
+            response.raise_for_status()
+            image_bytes = response.content
         except Exception as e:
-            logging.error(f"Failed to decode base64 image data: {e}")
+            logging.error(f"Failed to download image from URL: {e}")
             return {
                 "status": "error",
-                "message": f"Invalid base64 image data: {e}"
+                "message": f"Failed to download image: {e}"
             }
         
         # Save image to temporary file
@@ -473,15 +475,12 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                         
                         # Process the request
                         result = await process_request(request_data.get("request"), progress_callback)
-                        # result = {
-                        #     "output_file": "output/t2v_9f13adcd-a4f0-4811-8bca-a7d243998cf6.mp4",
-                        # }
                         
                         gcs_url = upload_to_gcs(result["output_file"], gcs_bucket, gcs_path)
                         
                         # Post the result
                         success = await post_result(nc, result_subject, 
-                                                    {'status': 'success', 'taskId': task_id, 'workerId': worker_id, 'videoUrl': gcs_url})
+                                                    {'status': 'success', 'taskId': task_id, 'workerId': worker_id, 'videoUrl': gcs_url, 'progress': 100})
                         if success:
                             logging.info(f"Successfully posted result for request {task_id}")
                         else:
