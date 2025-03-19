@@ -3,10 +3,8 @@ import os
 import signal
 import argparse
 import json
-import time
 import logging
 import uuid
-import base64
 import socket
 import requests
 from pathlib import Path

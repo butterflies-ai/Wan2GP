@@ -190,7 +190,8 @@ async def text_to_video(
         
         # Set default model files if not provided
         if transformer_file is None:
-            transformer_file = f"{DATA_DIR}/wan2.1_text2video_14B_bf16.safetensors"
+            # transformer_file = f"{DATA_DIR}/wan2.1_text2video_14B_bf16.safetensors"
+            transformer_file = f"{DATA_DIR}/wan2.1_text2video_14B_quanto_int8.safetensors"
             # if is_720p:
             #     transformer_file = f"{DATA_DIR}/wan2.1_text2video_14B_bf16.safetensors"
             # else:
