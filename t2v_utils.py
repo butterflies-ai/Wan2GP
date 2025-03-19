@@ -42,35 +42,21 @@ def load_t2v_model(model_filename, text_encoder_filename, is_720p=False):
     """
     Load the text-to-video model with a specific size config and text encoder.
     """
-    if is_720p:
-        print("Loading 14B-720p t2v model ...")
-        cfg = WAN_CONFIGS['t2v-14B']
-        wan_model = wan.WanT2V(
-            config=cfg,
-            checkpoint_dir=DATA_DIR,
-            device_id=0,
-            rank=0,
-            t5_fsdp=False,
-            dit_fsdp=False,
-            use_usp=False,
-            i2v720p=True,
-            model_filename=model_filename,
-            text_encoder_filename=text_encoder_filename
-        )
-    else:
-        print("Loading 14B-480p t2v model ...")
-        cfg = WAN_CONFIGS['t2v-14B']
-        wan_model = wan.WanT2V(
-            config=cfg,
-            checkpoint_dir=DATA_DIR,
-            device_id=0,
-            rank=0,
-            t5_fsdp=False,
-            dit_fsdp=False,
-            use_usp=False,
-            model_filename=model_filename,
-            text_encoder_filename=text_encoder_filename
-        )
+    print("Loading 14B-720p t2v model ...")
+    cfg = WAN_CONFIGS['t2v-14B']
+    wan_model = wan.WanT2V(
+        config=cfg,
+        checkpoint_dir=DATA_DIR,
+        device_id=0,
+        rank=0,
+        t5_fsdp=False,
+        dit_fsdp=False,
+        use_usp=False,
+        i2v720p=True,
+        model_filename=model_filename,
+        text_encoder_filename=text_encoder_filename
+    )
+    
     # Pipe structure
     pipe = {
         "transformer": wan_model.model,
@@ -192,10 +178,6 @@ async def text_to_video(
         if transformer_file is None:
             # transformer_file = f"{DATA_DIR}/wan2.1_text2video_14B_bf16.safetensors"
             transformer_file = f"{DATA_DIR}/wan2.1_text2video_14B_quanto_int8.safetensors"
-            # if is_720p:
-            #     transformer_file = f"{DATA_DIR}/wan2.1_text2video_14B_bf16.safetensors"
-            # else:
-            #     transformer_file = f"{DATA_DIR}/t2v-14B-480p.safetensors"
         
         if text_encoder_file is None:
             text_encoder_file = f"{DATA_DIR}/models_t5_umt5-xxl-enc-quanto_int8.safetensors"
@@ -255,7 +237,7 @@ async def text_to_video(
             else:
                 vae_tile_size = 128
         trans = wan_model.model
-        trans.enable_teacache = False
+        trans.enable_teacache = True
         if trans.enable_teacache:
             trans.coefficients = [-114.36346466, 65.26524496, -18.82220707, 4.91518089, -0.23412683]
             trans.teacache_counter = 0
@@ -268,8 +250,6 @@ async def text_to_video(
 
 
         print(f"Using VAE tile size of {vae_tile_size}")
-        
-        pprint.pprint(wan_model);
         
         # Generate the video
         print(f"Starting text-to-video generation for prompt: {prompt}")
