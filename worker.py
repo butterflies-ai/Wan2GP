@@ -638,10 +638,12 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                                     if thumbnail_gcs_url:
                                         result["thumbnail_url"] = thumbnail_gcs_url
                                         
-                            if request_data.get("upscaleTo720p", False):
+                            if request_data.get("request", {}).get("upscaleTo720p", False):
                                 upscaled_video_path = upscale_video(result["output_file"])
                                 if upscaled_video_path:
                                     result["output_file"] = upscaled_video_path
+                        else:
+                            logging.error(f"Video generation failed: {result}")
                         
                         # Upload the video to GCS if bucket is specified
                         if gcs_bucket and result.get("status") == "success" and result.get("output_file"):
