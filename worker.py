@@ -337,6 +337,77 @@ def extract_frame_from_video(video_path, frame_number=0, output_dir=None):
         logging.exception(f"Error extracting frame from video: {e}")
         return None
 
+def upscale_video(video_path):
+    """
+    Upscale a video using video2x in Docker.
+    
+    Args:
+        video_path (str): Path to the input video file
+    
+    Returns:
+        str: Path to the upscaled video file, or None if upscaling failed
+    """
+    try:
+        video_path = Path(video_path)
+        
+        # Ensure video exists
+        if not video_path.exists():
+            logging.error(f"Video file not found: {video_path}")
+            return None
+        
+        # Use the same directory as input for output
+        output_dir = video_path.parent
+        
+        # Generate output filename
+        output_filename = f"{video_path.stem}_upscaled.mp4"
+        output_path = output_dir / output_filename
+        
+        # Get absolute paths for Docker volume mounting
+        input_dir_abs = str(video_path.parent.absolute())
+        
+        # Build Docker command
+        cmd = [
+            "docker", "run",
+            "--gpus", "all",
+            "--rm",
+            "-v", f"{input_dir_abs}:/host",
+            "ghcr.io/k4yt3x/video2x:6.3.0",
+            "-i", f"{video_path.name}",
+            "-o", f"{output_filename}",
+            "-p", "realesrgan",
+            "-s", "4",
+            "--realesrgan-model", "realesr-generalv3"
+        ]
+        
+        logging.info(f"Upscaling video: {video_path}")
+        logging.debug(f"Running command: {' '.join(cmd)}")
+        
+        # Run Docker command
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        # Check if successful
+        if result.returncode != 0:
+            logging.error(f"Video upscaling failed with return code {result.returncode}")
+            logging.error(f"Docker error: {result.stderr}")
+            return None
+        
+        # Check if file was created
+        if not output_path.exists():
+            logging.error(f"Video upscaling failed: output file not created")
+            return None
+            
+        logging.info(f"Successfully upscaled video to {output_path}")
+        return str(output_path)
+        
+    except Exception as e:
+        logging.exception(f"Error upscaling video: {e}")
+        return None
+
 async def process_request(request_data, callback):
     """
     Process a request based on its type.
@@ -565,6 +636,11 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                                     thumbnail_gcs_url = upload_to_gcs(thumbnail_path, gcs_bucket, gcs_path)
                                     if thumbnail_gcs_url:
                                         result["thumbnail_url"] = thumbnail_gcs_url
+                                        
+                            if request_data.get("upscaleTo720p", False):
+                                upscaled_video_path = upscale_video(result["output_file"])
+                                if upscaled_video_path:
+                                    result["output_file"] = upscaled_video_path
                         
                         # Upload the video to GCS if bucket is specified
                         if gcs_bucket and result.get("status") == "success" and result.get("output_file"):
