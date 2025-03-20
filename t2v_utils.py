@@ -251,6 +251,7 @@ async def text_to_video(
 
 
         print(f"Using VAE tile size of {vae_tile_size}")
+        print(f"Using size of {width}x{height}")
         
         # Generate the video
         print(f"Starting text-to-video generation for prompt: {prompt}")
@@ -266,6 +267,7 @@ async def text_to_video(
             enable_RIFLEx=enable_riflex,
             VAE_tile_size=vae_tile_size,
             callback=callback,
+            size=(width, height)
         )
         
         # Clean up
