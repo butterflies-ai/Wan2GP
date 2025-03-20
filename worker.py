@@ -381,7 +381,7 @@ def upscale_video(video_path):
         ]
         
         logging.info(f"Upscaling video: {video_path}")
-        logging.debug(f"Running command: {' '.join(cmd)}")
+        logging.info(f"Running command: {' '.join(cmd)}")
         
         # Run Docker command
         result = subprocess.run(
@@ -394,7 +394,7 @@ def upscale_video(video_path):
         # Check if successful
         if result.returncode != 0:
             logging.error(f"Video upscaling failed with return code {result.returncode}")
-            logging.error(f"Docker error: {result.stderr}")
+            logging.error(f"Docker error: {result.stdout} {result.stderr}")
             return None
         
         # Check if file was created
