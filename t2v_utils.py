@@ -6,16 +6,11 @@ import gc
 from pathlib import Path
 import logging
 
-# Import WAN modules
-try:
-    import wan
-    from wan.configs import MAX_AREA_CONFIGS, WAN_CONFIGS
-    from wan.utils.utils import cache_video
-    from mmgp import offload
-    from wan.modules.attention import get_attention_modes
-except ImportError as e:
-    print(f"Warning: Could not import WAN modules: {e}")
-    print("Make sure the WAN modules are installed and in your Python path")
+import wan
+from wan.configs import MAX_AREA_CONFIGS, WAN_CONFIGS
+from wan.utils.utils import cache_video
+from mmgp import offload
+from wan.modules.attention import get_attention_modes
 
 # Default data directory
 DATA_DIR = "ckpts"
