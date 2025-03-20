@@ -4,7 +4,8 @@ import torch
 import random
 import gc
 from pathlib import Path
-import pprint
+import logging
+
 # Import WAN modules
 try:
     import wan
@@ -186,6 +187,7 @@ async def text_to_video(
         
         # Set attention mode
         chosen_attention = get_attention_mode(attention)
+        logging.info(f"Using attention mode: {chosen_attention}")
         offload.shared_state["_attention"] = chosen_attention
         
         # Make sure we have the needed models locally
