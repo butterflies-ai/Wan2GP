@@ -347,6 +347,7 @@ def upscale_video(video_path):
     Returns:
         str: Path to the upscaled video file, or None if upscaling failed
     """
+    logging.info(f"Upscaling video: {video_path}")
     try:
         video_path = Path(video_path)
         
