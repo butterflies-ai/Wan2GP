@@ -7,6 +7,7 @@ import logging
 import uuid
 import socket
 import requests
+import subprocess
 from pathlib import Path
 
 from google.cloud import storage
@@ -264,6 +265,78 @@ async def process_image_to_video_request(request_data, callback):
             "message": str(e)
         }
 
+def extract_frame_from_video(video_path, frame_number=0, output_dir=None):
+    """
+    Extract a specific frame from a video file using ffmpeg.
+    
+    Args:
+        video_path (str): Path to the video file
+        frame_number (int): The frame number to extract (0-indexed)
+        output_dir (str, optional): Directory to save the frame. If None, uses the same directory as the video.
+    
+    Returns:
+        str: Path to the extracted frame image file, or None if extraction failed
+    """
+    try:
+        video_path = Path(video_path)
+        
+        # Ensure video exists
+        if not video_path.exists():
+            logging.error(f"Video file not found: {video_path}")
+            return None
+        
+        # Create output directory if specified
+        if output_dir:
+            output_dir = Path(output_dir)
+            output_dir.mkdir(exist_ok=True)
+        else:
+            output_dir = video_path.parent
+        
+        # Generate output filename
+        frame_filename = f"{video_path.stem}_frame_{frame_number}.jpg"
+        frame_path = output_dir / frame_filename
+        
+        # Build ffmpeg command
+        # -ss specifies the timestamp, -vframes 1 means extract one frame
+        cmd = [
+            "ffmpeg",
+            "-i", str(video_path),
+            "-vf", f"select=eq(n\\,{frame_number})",  # Select the specific frame by number
+            "-vframes", "1",
+            "-q:v", "2",  # Quality setting (2 is high quality)
+            str(frame_path),
+            "-y"  # Overwrite if exists
+        ]
+        
+        logging.info(f"Extracting frame {frame_number} from {video_path}")
+        logging.debug(f"Running command: {' '.join(cmd)}")
+        
+        # Run ffmpeg command
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        # Check if successful
+        if result.returncode != 0:
+            logging.error(f"ffmpeg failed with return code {result.returncode}")
+            logging.error(f"ffmpeg error: {result.stderr}")
+            return None
+        
+        # Check if file was created
+        if not frame_path.exists():
+            logging.error(f"Frame extraction failed: output file not created")
+            return None
+            
+        logging.info(f"Successfully extracted frame to {frame_path}")
+        return str(frame_path)
+        
+    except Exception as e:
+        logging.exception(f"Error extracting frame from video: {e}")
+        return None
+
 async def process_request(request_data, callback):
     """
     Process a request based on its type.
@@ -358,10 +431,13 @@ async def post_result(nc, result_subject, data):
         bool: True if successful, False otherwise
     """
     try:
-        # Add request_id and worker_id to result data
+        # Extract task_id for logging
+        task_id = data.get("taskId", "unknown")
+        
         # Convert data to JSON and then to bytes
         result_payload = json.dumps(data).encode()
         
+        logging.info(f"Posting result for task {task_id} to '{result_subject}'")
         logging.debug(f"Result data: {data}")
         
         response = None
@@ -474,11 +550,46 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                         # Process the request
                         result = await process_request(request_data.get("request"), progress_callback)
                         
-                        gcs_url = upload_to_gcs(result["output_file"], gcs_bucket, gcs_path)
+                        # Check if video generation was successful and output file exists
+                        if result.get("status") == "success" and result.get("output_file") and os.path.exists(result["output_file"]):
+                            # Extract a thumbnail from the middle of the video (usually frame 32 for 65-frame videos)
+                            frame_number = int(request_data.get("request", {}).get("frameNum", 65)) // 2
+                            thumbnail_path = extract_frame_from_video(result["output_file"], frame_number)
+                            
+                            if thumbnail_path:
+                                result["thumbnail_path"] = thumbnail_path
+                                logging.info(f"Generated thumbnail at {thumbnail_path}")
+                                
+                                # Upload thumbnail to GCS if GCS bucket is specified
+                                if gcs_bucket:
+                                    thumbnail_gcs_url = upload_to_gcs(thumbnail_path, gcs_bucket, gcs_path)
+                                    if thumbnail_gcs_url:
+                                        result["thumbnail_url"] = thumbnail_gcs_url
+                        
+                        # Upload the video to GCS if bucket is specified
+                        if gcs_bucket and result.get("status") == "success" and result.get("output_file"):
+                            gcs_url = upload_to_gcs(result["output_file"], gcs_bucket, gcs_path)
+                            if gcs_url:
+                                result["gcs_url"] = gcs_url
                         
                         # Post the result
-                        success = await post_result(nc, result_subject, 
-                                                    {'status': 'success', 'taskId': task_id, 'workerId': worker_id, 'videoUrl': gcs_url, 'progress': 100})
+                        result_data = {
+                            'status': 'success', 
+                            'taskId': task_id, 
+                            'workerId': worker_id, 
+                            'result': result,
+                            'progress': 100
+                        }
+                        
+                        # Include video URL directly in the top level for compatibility
+                        if result.get("gcs_url"):
+                            result_data["videoUrl"] = result["gcs_url"]
+                            
+                        # Include thumbnail URL directly in the top level for easy access
+                        if result.get("thumbnail_url"):
+                            result_data["thumbnailUrl"] = result["thumbnail_url"]
+                        
+                        success = await post_result(nc, result_subject, result_data)
                         if success:
                             logging.info(f"Successfully posted result for request {task_id}")
                         else:
