@@ -603,7 +603,6 @@ async def run(nats_server, request_subject, result_subject, polling_interval, wo
                 response_data = response.data.decode()
                 try:
                     request_data = json.loads(response_data)
-                    logging.info(f"Received request data: {request_data}")
                     
                     # Check if there's a request to process
                     if request_data.get("status") == "no_request":
