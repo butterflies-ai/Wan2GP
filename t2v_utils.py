@@ -52,7 +52,6 @@ def load_t2v_model(model_filename, text_encoder_filename, is_720p=False):
         t5_fsdp=False,
         dit_fsdp=False,
         use_usp=False,
-        i2v720p=True,
         model_filename=model_filename,
         text_encoder_filename=text_encoder_filename
     )
