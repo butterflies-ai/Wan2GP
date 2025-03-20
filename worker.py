@@ -377,7 +377,7 @@ def upscale_video(video_path):
             "-o", f"{output_filename}",
             "-p", "realesrgan",
             "-s", "4",
-            "--realesrgan-model", "realesr-generalv3"
+            "--realesrgan-model", "realesrgan-plus"
         ]
         
         logging.info(f"Upscaling video: {video_path}")
