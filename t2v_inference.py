@@ -440,7 +440,7 @@ def parse_args():
 # MAIN
 # --------------------------------------------------
 
-def main():
+async def main():
     args = parse_args()
 
     # Setup environment
@@ -618,7 +618,7 @@ def main():
 
     # Actually run the i2v generation
     try:
-        sample_frames = wan_model.generate(
+        sample_frames = await wan_model.generate(
             user_prompt,
             # input_img,
             frame_num=frame_count,
