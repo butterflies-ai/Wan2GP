@@ -14,6 +14,8 @@ from wan.configs import MAX_AREA_CONFIGS, WAN_CONFIGS
 from wan.modules.attention import get_attention_modes
 from wan.utils.utils import cache_video
 from mmgp import offload, safetensors2, profile_type
+import asyncio
+
 
 try:
     import triton
@@ -680,4 +682,4 @@ async def main():
     print(f"Done! Output written to {args.output_file}. Generation time: {elapsed_s:.1f} seconds.")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
